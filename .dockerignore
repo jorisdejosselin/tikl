@@ -1,0 +1,15 @@
+.git
+.github
+.venv
+dist
+build
+docs
+tests
+*.spec
+__pycache__
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.coverage
+DESIGN.md
+CONTEXT.md

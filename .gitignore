@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.spec
+
+# Environments
+.venv/
+venv/
+
+# uv
+.uv/
+
+# Test / coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Captured handshakes must never be committed unless they are a deliberate,
+# burner-credential KAT fixture placed under tests/fixtures/.
+/capture*.json
+*.capture.json

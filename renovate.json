@@ -1,0 +1,24 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    "schedule:nonOfficeHours"
+  ],
+  "rangeStrategy": "pin",
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "Automerge patch + minor across all managers once CI is green.",
+      "matchUpdateTypes": ["patch", "minor"],
+      "automerge": true
+    },
+    {
+      "description": "Majors get a manual review (see DESIGN.md #13).",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ]
+}
