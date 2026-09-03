@@ -102,6 +102,12 @@ def interactive_shell(transport: Transport) -> None:
         _interactive_posix(transport)
 
 
+# Local escape key: Ctrl-] (like telnet) breaks out of the shell even if the
+# remote session is dead, since in raw mode Ctrl-C is forwarded, not local.
+_ESCAPE = b"\x1d"
+_KEEPALIVE_INTERVAL = 15.0
+
+
 def _drain_to_stdout(transport: Transport) -> bool:
     """Read one chunk from the transport to stdout. Returns False when closed."""
     try:
@@ -111,6 +117,14 @@ def _drain_to_stdout(transport: Transport) -> bool:
     if out:
         os.write(sys.stdout.fileno(), out)
     return True
+
+
+def _keepalive(transport: Transport) -> None:
+    """Best-effort idle keepalive, if the transport supports it."""
+    ka = getattr(transport, "keepalive", None)
+    if callable(ka):
+        with contextlib.suppress(Exception):
+            ka()
 
 
 def _interactive_posix(transport: Transport) -> None:
@@ -128,6 +142,7 @@ def _interactive_posix(transport: Transport) -> None:
             transport.resize(cols, rows)
 
     prev_winch = signal.getsignal(signal.SIGWINCH)
+    last_ka = time.time()
     try:
         tty.setraw(stdin_fd)
         signal.signal(signal.SIGWINCH, on_winch)
@@ -137,9 +152,12 @@ def _interactive_posix(transport: Transport) -> None:
             ready, _, _ = select.select([stdin_fd], [], [], 0.02)
             if stdin_fd in ready:
                 data = os.read(stdin_fd, 1024)
-                if not data:
+                if not data or _ESCAPE in data:
                     break
                 transport.write(data)
+            if time.time() - last_ka >= _KEEPALIVE_INTERVAL:
+                last_ka = time.time()
+                _keepalive(transport)
     finally:
         termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_attr)
         signal.signal(signal.SIGWINCH, prev_winch)
@@ -148,9 +166,16 @@ def _interactive_posix(transport: Transport) -> None:
 def _interactive_windows(transport: Transport) -> None:  # pragma: no cover - Windows only
     import msvcrt  # noqa: PLC0415
 
+    last_ka = time.time()
     while True:
         if not _drain_to_stdout(transport):
             break
         while msvcrt.kbhit():  # type: ignore[attr-defined]
-            transport.write(msvcrt.getwch().encode())  # type: ignore[attr-defined]
+            ch = msvcrt.getwch().encode()  # type: ignore[attr-defined]
+            if ch == _ESCAPE:
+                return
+            transport.write(ch)
+        if time.time() - last_ka >= _KEEPALIVE_INTERVAL:
+            last_ka = time.time()
+            _keepalive(transport)
         time.sleep(0.005)

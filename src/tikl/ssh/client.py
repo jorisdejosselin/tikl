@@ -64,6 +64,9 @@ class SshTransport:
         except (OSError, paramiko.SSHException) as exc:
             raise ConnectionFailed(f"SSH connection failed: {exc}") from exc
         self._client = client
+        transport = client.get_transport()
+        if transport is not None:
+            transport.set_keepalive(15)  # keep idle sessions alive
         self._chan = client.invoke_shell(term=self.term, width=self.cols, height=self.rows)
         self._chan.settimeout(0.0)
 

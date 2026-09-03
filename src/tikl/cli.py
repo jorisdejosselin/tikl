@@ -106,7 +106,7 @@ def _run(
                 click.secho(f"=== {command} ===", fg="cyan")
                 click.echo(output)
         else:
-            click.echo("Connected. Interactive shell — type 'quit' to exit.\n", err=True)
+            click.echo("Connected. Interactive shell — Ctrl-] to quit.\n", err=True)
             interactive_shell(transport)
     except (TiklError, RuntimeError) as exc:
         click.secho(f"error: {exc}", fg="red", err=True)

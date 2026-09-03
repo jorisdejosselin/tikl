@@ -239,6 +239,10 @@ class MacTransport:
         plain = msg.get("plain")
         return plain if plain else b""
 
+    def keepalive(self) -> None:
+        """Send an ACK of the last received counter to keep an idle session alive."""
+        self._send_raw(p.pack(p.PTYPE_ACK, self.me, self.dst, self.sk, max(self.in_c, 0)))
+
     def resize(self, cols: int, rows: int) -> None:
         self.cols, self.rows = cols, rows
         data = self._emit(

@@ -37,6 +37,11 @@ class FakeChannel:
         self.closed = True
 
 
+class FakeTransport:
+    def set_keepalive(self, interval: int) -> None:
+        self.interval = interval
+
+
 class FakeClient:
     last: FakeClient | None = None
 
@@ -49,6 +54,9 @@ class FakeClient:
     def set_missing_host_key_policy(self, policy: object) -> None: ...
     def connect(self, host: str, **kwargs: object) -> None:
         self.connect_kwargs = {"host": host, **kwargs}
+
+    def get_transport(self) -> FakeTransport:
+        return FakeTransport()
 
     def invoke_shell(self, **kwargs: object) -> FakeChannel:
         return self.channel
