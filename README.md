@@ -61,7 +61,14 @@ tikl ssh 192.168.88.1
 # auto-select: a MAC uses MAC-Telnet, an IP/host uses SSH
 sudo tikl 38:32:7A:26:8E:BD /system resource print
 tikl 192.168.88.1 /system resource print
+
+# several commands in one session: repeat -c
+sudo tikl mac 38:32:7A:26:8E:BD -c "/system identity print" -c "/ip address print"
 ```
+
+The words after the target are **joined into one command**, so no quoting is
+needed for a single command (`… /ip address print`). Use `-c` (repeatable) to
+run several commands in one session. No command at all → interactive shell.
 
 `tikl discover` needs no privileges (plain UDP). MAC-Telnet needs root/pcap;
 SSH needs neither.
@@ -101,6 +108,20 @@ uv run pytest               # tests (no hardware needed)
 uv run ruff check .         # lint
 uv run mypy                 # type-check
 ```
+
+Installing the CLI while iterating:
+
+```bash
+# live edits — source changes take effect without reinstalling
+uv tool install --editable . --force
+
+# or update a normal install (plain `uv tool install .` won't rebuild the same
+# version); precompiling bytecode avoids root-owned .pyc from sudo runs
+UV_COMPILE_BYTECODE=1 uv tool install . --force --reinstall
+```
+
+(Tikl disables bytecode writing when it runs as root, so `sudo tikl` no longer
+leaves root-owned `.pyc` that block the next reinstall.)
 
 Tests never contact a router: crypto is checked against frozen/golden vectors
 and the session loop against a fake transport. Hardware tests are marked `hw`

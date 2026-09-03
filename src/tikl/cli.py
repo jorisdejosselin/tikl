@@ -53,6 +53,16 @@ def _default_user() -> str:
     return os.environ.get("TIKL_USER") or os.environ.get("MT_USER") or "admin"
 
 
+def _commands(positional: tuple[str, ...], command_opts: tuple[str, ...]) -> list[str]:
+    """Build the command list: each -c is one command; the positional words are
+    joined into a single command (so `tikl mac <mac> /ip address print` works
+    unquoted). Empty result => interactive shell."""
+    cmds = list(command_opts)
+    if positional:
+        cmds.append(" ".join(positional))
+    return cmds
+
+
 def _make_capture_hook(capture_path: Path | None):  # type: ignore[no-untyped-def]
     if capture_path is None:
         return None
@@ -225,6 +235,13 @@ def discover(iface: str | None, timeout: float) -> None:
     default=lambda: os.environ.get("MT_IFACE"),
     help="Interface to broadcast on (default: scapy default).",
 )
+@click.option(
+    "-c",
+    "--command",
+    "command_opts",
+    multiple=True,
+    help="A RouterOS command to run (repeatable, for several commands).",
+)
 @click.option("--password", default=None, help="Password ($TIKL_PASS or prompt if omitted).")
 @click.option("--timeout", default=30.0, show_default=True, help="Per-command timeout (s).")
 @click.option(
@@ -238,15 +255,16 @@ def discover(iface: str | None, timeout: float) -> None:
 def mac(
     mac: str,
     commands: tuple[str, ...],
+    command_opts: tuple[str, ...],
     user: str,
     iface: str | None,
     password: str | None,
     timeout: float,
     capture_path: Path | None,
 ) -> None:
-    """Connect by MAC over MAC-Telnet (layer 2, no IP). No commands = shell."""
+    """Connect by MAC over MAC-Telnet (layer 2, no IP). No command = shell."""
     transport = _build_mac(mac, user, _resolve_password(password), iface, capture_path)
-    _run(transport, f"{mac} (MAC-Telnet)", commands, timeout)
+    _run(transport, f"{mac} (MAC-Telnet)", _commands(commands, command_opts), timeout)
 
 
 @cli.command()
@@ -260,21 +278,29 @@ def mac(
     help="RouterOS username.",
 )
 @click.option("-p", "--port", default=22, show_default=True, help="SSH port.")
+@click.option(
+    "-c",
+    "--command",
+    "command_opts",
+    multiple=True,
+    help="A RouterOS command to run (repeatable, for several commands).",
+)
 @click.option("--password", default=None, help="Password ($TIKL_PASS or prompt if omitted).")
 @click.option("--timeout", default=30.0, show_default=True, help="Per-command timeout (s).")
 @click.option("--legacy", is_flag=True, help="Re-enable legacy SSH algorithms for old RouterOS.")
 def ssh(
     host: str,
     commands: tuple[str, ...],
+    command_opts: tuple[str, ...],
     user: str,
     port: int,
     password: str | None,
     timeout: float,
     legacy: bool,
 ) -> None:
-    """Connect by IP/hostname over SSH. No commands = interactive shell."""
+    """Connect by IP/hostname over SSH. No command = interactive shell."""
     transport = _build_ssh(host, user, _resolve_password(password), port, legacy)
-    _run(transport, f"{host} (SSH)", commands, timeout)
+    _run(transport, f"{host} (SSH)", _commands(commands, command_opts), timeout)
 
 
 @cli.command(hidden=True)
@@ -283,6 +309,7 @@ def ssh(
 @click.option("-u", "--user", default=_default_user)
 @click.option("-i", "--iface", default=lambda: os.environ.get("MT_IFACE"))
 @click.option("-p", "--port", default=22)
+@click.option("-c", "--command", "command_opts", multiple=True)
 @click.option("--password", default=None)
 @click.option("--timeout", default=30.0)
 @click.option("--legacy", is_flag=True)
@@ -292,6 +319,7 @@ def ssh(
 def connect(
     target: str,
     commands: tuple[str, ...],
+    command_opts: tuple[str, ...],
     user: str,
     iface: str | None,
     port: int,
@@ -311,7 +339,7 @@ def connect(
     else:
         transport = _build_ssh(target, user, pwd, port, legacy)
         desc = f"{target} (SSH)"
-    _run(transport, desc, commands, timeout)
+    _run(transport, desc, _commands(commands, command_opts), timeout)
 
 
 def main() -> None:

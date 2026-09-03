@@ -38,7 +38,7 @@ def test_bare_mac_routes_to_mactelnet(spy: dict) -> None:
     assert result.exit_code == 0, result.output
     assert spy["kind"] == "MAC"
     assert "MAC-Telnet" in spy["desc"]
-    assert spy["commands"] == ("/system resource print",)
+    assert spy["commands"] == ["/system resource print"]
 
 
 def test_bare_ip_routes_to_ssh(spy: dict) -> None:

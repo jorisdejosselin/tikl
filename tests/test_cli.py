@@ -6,8 +6,22 @@ import pytest
 from click.testing import CliRunner
 
 import tikl.cli as cli_mod
-from tikl.cli import _default_user, _resolve_password, cli
+from tikl.cli import _commands, _default_user, _resolve_password, cli
 from tikl.errors import AuthFailed
+
+
+def test_commands_join_and_options() -> None:
+    # positional words join into one command (unquoted multi-word works)
+    assert _commands(("/ip", "address", "print"), ()) == ["/ip address print"]
+    # -c options are each their own command
+    assert _commands((), ("/a", "/b")) == ["/a", "/b"]
+    # both: -c first, then the joined positional
+    assert _commands(("/ip", "print"), ("/system identity print",)) == [
+        "/system identity print",
+        "/ip print",
+    ]
+    # nothing -> interactive (empty)
+    assert _commands((), ()) == []
 
 
 class FakeMac:
