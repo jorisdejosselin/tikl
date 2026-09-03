@@ -45,7 +45,15 @@ def _resolve_password(password: str | None) -> str:
     env = os.environ.get("TIKL_PASS") or os.environ.get("MT_PASS")
     if env is not None:
         return env
-    return getpass.getpass("Password: ")
+    try:
+        return getpass.getpass("Password: ")
+    except EOFError as exc:
+        # No usable terminal for the prompt (common under sudo when the env was
+        # stripped). Point at the fixes instead of a bare "Aborted!".
+        raise click.ClickException(
+            "no password available. Pass --password, set TIKL_PASS, or (under sudo) "
+            "keep it via sudoers: Defaults env_keep += \"TIKL_PASS TIKL_USER\""
+        ) from exc
 
 
 def _default_user() -> str:
