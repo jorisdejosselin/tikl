@@ -66,6 +66,8 @@ class MacTransport:
         self._w = WCurve()
         # When no iface and no injected link, auto-detect the NIC at connect().
         self._auto_iface = link is None and iface is None
+        # Set to the NIC name when connect() auto-detected it (for a CLI hint).
+        self.auto_detected: str | None = None
         # A Link handles L2 I/O; default is the real scapy link (needs root).
         self._link: Link = link if link is not None else ScapyLink(iface, self._sport)
         self.me = self._link.hwaddr
@@ -114,32 +116,39 @@ class MacTransport:
         return None
 
     def _detect_iface(self) -> str | None:
-        """Find which interface the router answers MAC-Telnet on (START probe).
+        """Find which interface the router answers MAC-Telnet on, probing all
+        candidates in parallel and returning the first that replies.
 
-        Uses a throwaway session key per probe so the real connect() opens a
-        fresh session the router will answer (reusing the key would look like a
-        duplicate START and be ignored).
+        Uses a throwaway session key so the real connect() opens a fresh session
+        the router will answer (reusing the key would look like a duplicate START
+        and be ignored).
         """
-        for iface in candidate_ifaces():
-            probe_sk = random.randint(1, 0xFFFF)
+        candidates = candidate_ifaces()
+        if not candidates:
+            return None
+        probe_sk = random.randint(1, 0xFFFF)
+        found: queue.Queue[str] = queue.Queue()
+        links: list[ScapyLink] = []
+        for iface in candidates:
             link = ScapyLink(iface, self._sport)
-            hit: queue.Queue[bool] = queue.Queue()
 
-            def on_payload(raw: bytes, _hit: queue.Queue[bool] = hit, _sk: int = probe_sk) -> None:
+            def on_payload(raw: bytes, _iface: str = iface, _sk: int = probe_sk) -> None:
                 msg, _ = p.unpack(raw)
                 if msg and msg["sk"] == _sk:
-                    _hit.put(True)
+                    found.put(_iface)
 
             link.start(on_payload)
-            time.sleep(0.2)
+            links.append(link)
+        time.sleep(0.25)  # let the sniffers spin up
+        for link in links:
             link.send(p.pack(p.PTYPE_START, link.hwaddr, self.dst, probe_sk, 0))
-            try:
-                hit.get(timeout=1.2)
-                link.close()
-                return iface
-            except queue.Empty:
-                link.close()
-        return None
+        try:
+            detected: str | None = found.get(timeout=1.5)
+        except queue.Empty:
+            detected = None
+        for link in links:
+            link.close()
+        return detected
 
     # -- Transport interface ----------------------------------------------
 
@@ -152,6 +161,7 @@ class MacTransport:
                     "(wrong MAC, or router not reachable at layer 2)"
                 )
             self.iface = iface
+            self.auto_detected = iface
             self._link = ScapyLink(iface, self._sport)
             self.me = self._link.hwaddr
 

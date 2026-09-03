@@ -134,6 +134,13 @@ def _run(
     click.echo(f"Connecting to {desc}...", err=True)
     try:
         transport.connect()
+        detected = getattr(transport, "auto_detected", None)
+        if detected:
+            click.secho(
+                f"(found on {detected} — pass --iface {detected} to skip the interface search)",
+                fg="yellow",
+                err=True,
+            )
         if commands:
             click.echo("Connected.\n", err=True)
             for command, output in run_batch(transport, commands, timeout):
