@@ -29,6 +29,11 @@ DEFAULT_COMMANDS = (
     "/ip dhcp-client print",
 )
 
+# Terminal size reported to RouterOS in batch mode: wide + tall so output never
+# paginates (which would swallow the following command).
+_BATCH_COLS = 512
+_BATCH_ROWS = 10000
+
 
 _CSI_RE = re.compile(rb"\x1b\[([0-9;]*)([A-Za-z])|\x1b([DMZ])|([\r\n])")
 
@@ -150,9 +155,10 @@ def run_batch(
     ready_timeout: float = 25.0,
 ) -> Iterator[tuple[str, str]]:
     """Wait for the shell, then run each command, yielding ``(command, output)``."""
-    # Answer RouterOS's terminal size-detection so it doesn't stall; a tall
-    # height keeps long output from being paginated.
-    responder = TerminalResponder(cols=terminal_size()[0], rows=10000)
+    # Answer RouterOS's terminal size-detection so it doesn't stall. Report a very
+    # wide, tall terminal so RouterOS never paginates — vertically ("-- more --")
+    # or horizontally ("[right]"), which would otherwise swallow later commands.
+    responder = TerminalResponder(cols=_BATCH_COLS, rows=_BATCH_ROWS)
     wait_for_prompt(transport, ready_timeout, responder)
     for command in commands:
         yield command, run_command(transport, command, timeout, responder)
