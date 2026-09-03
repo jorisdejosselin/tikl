@@ -52,7 +52,7 @@ def _resolve_password(password: str | None) -> str:
         # stripped). Point at the fixes instead of a bare "Aborted!".
         raise click.ClickException(
             "no password available. Pass --password, set TIKL_PASS, or (under sudo) "
-            "keep it via sudoers: Defaults env_keep += \"TIKL_PASS TIKL_USER\""
+            'keep it via sudoers: Defaults env_keep += "TIKL_PASS TIKL_USER"'
         ) from exc
 
 
@@ -88,21 +88,32 @@ def _make_capture_hook(capture_path: Path | None):  # type: ignore[no-untyped-de
     return on_capture
 
 
+def _term_for(commands: list[str]) -> str:
+    """Batch uses a dumb terminal (clean, uncolored output); interactive uses the
+    real $TERM for a full-featured shell."""
+    return "dumb" if commands else terminal_type()
+
+
 def _build_mac(
-    mac: str, user: str, password: str, iface: str | None, capture_path: Path | None = None
+    mac: str,
+    user: str,
+    password: str,
+    iface: str | None,
+    capture_path: Path | None = None,
+    term: str = "dumb",
 ) -> MacTransport:
     return MacTransport(
         mac,
         user=user,
         password=password,
         iface=iface,
-        term=terminal_type(),
+        term=term,
         term_size=terminal_size(),
         on_capture=_make_capture_hook(capture_path),
     )
 
 
-def _build_ssh(host: str, user: str, password: str, port: int, legacy: bool):  # type: ignore[no-untyped-def]
+def _build_ssh(host: str, user: str, password: str, port: int, legacy: bool, term: str = "dumb"):  # type: ignore[no-untyped-def]
     from .ssh.client import SshTransport  # noqa: PLC0415 - keep paramiko import lazy
 
     return SshTransport(
@@ -110,7 +121,7 @@ def _build_ssh(host: str, user: str, password: str, port: int, legacy: bool):  #
         user=user,
         password=password,
         port=port,
-        term=terminal_type(),
+        term=term,
         term_size=terminal_size(),
         legacy_algorithms=legacy,
     )
@@ -271,8 +282,11 @@ def mac(
     capture_path: Path | None,
 ) -> None:
     """Connect by MAC over MAC-Telnet (layer 2, no IP). No command = shell."""
-    transport = _build_mac(mac, user, _resolve_password(password), iface, capture_path)
-    _run(transport, f"{mac} (MAC-Telnet)", _commands(commands, command_opts), timeout)
+    cmds = _commands(commands, command_opts)
+    transport = _build_mac(
+        mac, user, _resolve_password(password), iface, capture_path, _term_for(cmds)
+    )
+    _run(transport, f"{mac} (MAC-Telnet)", cmds, timeout)
 
 
 @cli.command()
@@ -307,8 +321,9 @@ def ssh(
     legacy: bool,
 ) -> None:
     """Connect by IP/hostname over SSH. No command = interactive shell."""
-    transport = _build_ssh(host, user, _resolve_password(password), port, legacy)
-    _run(transport, f"{host} (SSH)", _commands(commands, command_opts), timeout)
+    cmds = _commands(commands, command_opts)
+    transport = _build_ssh(host, user, _resolve_password(password), port, legacy, _term_for(cmds))
+    _run(transport, f"{host} (SSH)", cmds, timeout)
 
 
 @cli.command(hidden=True)
@@ -341,13 +356,15 @@ def connect(
     if mode == "auto":
         mode = "mac" if _looks_like_mac(target) else "ssh"
     pwd = _resolve_password(password)
+    cmds = _commands(commands, command_opts)
+    term = _term_for(cmds)
     if mode == "mac":
-        transport: Transport = _build_mac(target, user, pwd, iface)
+        transport: Transport = _build_mac(target, user, pwd, iface, term=term)
         desc = f"{target} (MAC-Telnet)"
     else:
-        transport = _build_ssh(target, user, pwd, port, legacy)
+        transport = _build_ssh(target, user, pwd, port, legacy, term=term)
         desc = f"{target} (SSH)"
-    _run(transport, desc, _commands(commands, command_opts), timeout)
+    _run(transport, desc, cmds, timeout)
 
 
 def main() -> None:

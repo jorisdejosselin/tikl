@@ -36,7 +36,11 @@ CPTYPE_TERMTYPE = 4
 CPTYPE_TERMWIDTH = 5
 CPTYPE_TERMHEIGHT = 6
 
-_ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[a-zA-Z]|[DZ])")
+# CSI (7-bit ESC[ and 8-bit \x9b), simple ESC sequences, and charset selects.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x9b[0-9;?]*[A-Za-z]|\x1b[()][0-9A-B]|\x1b[DMZ=>]")
+_ANSI_BYTES_RE = re.compile(
+    rb"\x1b\[[0-9;?]*[A-Za-z]|\x9b[0-9;?]*[A-Za-z]|\x1b[()][0-9A-B]|\x1b[DMZ=>]"
+)
 
 
 def mac_to_bytes(mac: str) -> bytes:
@@ -52,6 +56,15 @@ def mac_to_str(b: bytes) -> str:
 def strip_ansi(s: str) -> str:
     """Remove the subset of ANSI escapes RouterOS emits."""
     return _ANSI_RE.sub("", s)
+
+
+def strip_ansi_bytes(b: bytes) -> bytes:
+    """Strip ANSI escapes at the byte level (before decoding).
+
+    Must run on bytes: the 8-bit CSI byte 0x9b would otherwise become U+FFFD on
+    a utf-8 decode and no longer match.
+    """
+    return _ANSI_BYTES_RE.sub(b"", b)
 
 
 def sha256(x: bytes) -> bytes:

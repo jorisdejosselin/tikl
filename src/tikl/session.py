@@ -16,7 +16,7 @@ import time
 from collections.abc import Iterator
 
 from .errors import AuthFailed, SessionClosed
-from .mac.protocol import strip_ansi
+from .mac.protocol import strip_ansi_bytes
 from .transport import Transport
 
 # RouterOS shell prompt, e.g. ``[admin@MikroTik] >`` (ANSI already stripped).
@@ -30,12 +30,77 @@ DEFAULT_COMMANDS = (
 )
 
 
-def _read_until_prompt(transport: Transport, timeout: float) -> tuple[str, bool]:
+_CSI_RE = re.compile(rb"\x1b\[([0-9;]*)([A-Za-z])|\x1b([DMZ])|([\r\n])")
+
+
+class TerminalResponder:
+    """Minimal cursor emulator that answers RouterOS's size-detection probes.
+
+    At shell start RouterOS parks the cursor at various positions (home, far
+    right/bottom via ESC[9999C/B) and asks ESC[6n for the cursor position to
+    triangulate the terminal size, blocking ~10s if unanswered. In batch mode no
+    real terminal replies, so we track the cursor against a declared size and
+    answer each probe with the correct position — detection then completes in
+    milliseconds. A tall height avoids RouterOS paginating long output.
+    """
+
+    def __init__(self, cols: int, rows: int) -> None:
+        self.cols = max(1, cols)
+        self.rows = max(1, rows)
+        self.row = 1
+        self.col = 1
+
+    @staticmethod
+    def _num(params: bytes, default: int = 1) -> int:
+        first = params.split(b";")[0] if params else b""
+        return int(first) if first.isdigit() else default
+
+    def feed(self, chunk: bytes) -> bytes:
+        """Advance the cursor over ``chunk``; return bytes to send back (replies)."""
+        out = b""
+        for m in _CSI_RE.finditer(chunk):
+            params, letter, esc, nl = m.group(1), m.group(2), m.group(3), m.group(4)
+            if letter:
+                n = self._num(params)
+                if letter == b"A":
+                    self.row = max(1, self.row - n)
+                elif letter == b"B":
+                    self.row = min(self.rows, self.row + n)
+                elif letter == b"C":
+                    self.col = min(self.cols, self.col + n)
+                elif letter == b"D":
+                    self.col = max(1, self.col - n)
+                elif letter in (b"H", b"f"):
+                    parts = params.split(b";") if params else []
+                    r = int(parts[0]) if parts and parts[0].isdigit() else 1
+                    c = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+                    self.row = min(max(1, r), self.rows)
+                    self.col = min(max(1, c), self.cols)
+                elif letter == b"n" and params == b"6":
+                    out += b"\x1b[%d;%dR" % (self.row, self.col)
+                elif letter == b"c":
+                    out += b"\x1b[?1;0c"
+            elif esc == b"D":
+                self.row = min(self.rows, self.row + 1)
+            elif esc == b"M":
+                self.row = max(1, self.row - 1)
+            elif esc == b"Z":
+                out += b"\x1b[?1;0c"
+            elif nl == b"\r":
+                self.col = 1
+            elif nl == b"\n":
+                self.row = min(self.rows, self.row + 1)
+        return out
+
+
+def _read_until_prompt(
+    transport: Transport, timeout: float, responder: TerminalResponder | None = None
+) -> tuple[str, bool]:
     """Accumulate output until a RouterOS prompt appears or ``timeout`` elapses.
 
     Returns ``(text, saw_prompt)`` with ANSI stripped.
     """
-    buf = ""
+    buf = b""
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -44,25 +109,37 @@ def _read_until_prompt(transport: Transport, timeout: float) -> tuple[str, bool]
             break
         if not chunk:
             continue
-        buf += chunk.decode("utf-8", errors="replace")
-        if _PROMPT_RE.search(strip_ansi(buf)):
-            return strip_ansi(buf), True
-    return strip_ansi(buf), False
+        if responder is not None:
+            reply = responder.feed(chunk)
+            if reply:
+                transport.write(reply)
+        buf += chunk  # strip escapes at byte level (keeps 8-bit CSI), then decode
+        text = strip_ansi_bytes(buf).decode("utf-8", "replace")
+        if _PROMPT_RE.search(text):
+            return text, True
+    return strip_ansi_bytes(buf).decode("utf-8", "replace"), False
 
 
-def wait_for_prompt(transport: Transport, timeout: float = 25.0) -> None:
+def wait_for_prompt(
+    transport: Transport, timeout: float = 25.0, responder: TerminalResponder | None = None
+) -> None:
     """Block until the first shell prompt; raise :class:`AuthFailed` otherwise."""
-    text, ok = _read_until_prompt(transport, timeout)
+    text, ok = _read_until_prompt(transport, timeout, responder)
     if not ok:
         if _FAIL_RE.search(text):
             raise AuthFailed(text.strip()[:200] or "authentication failed")
         raise AuthFailed("no prompt from router (authentication likely failed)")
 
 
-def run_command(transport: Transport, command: str, timeout: float = 30.0) -> str:
+def run_command(
+    transport: Transport,
+    command: str,
+    timeout: float = 30.0,
+    responder: TerminalResponder | None = None,
+) -> str:
     """Send one RouterOS command and return its output (ANSI stripped)."""
     transport.write((command + "\r").encode())
-    text, _ = _read_until_prompt(transport, timeout)
+    text, _ = _read_until_prompt(transport, timeout, responder)
     return text
 
 
@@ -73,9 +150,12 @@ def run_batch(
     ready_timeout: float = 25.0,
 ) -> Iterator[tuple[str, str]]:
     """Wait for the shell, then run each command, yielding ``(command, output)``."""
-    wait_for_prompt(transport, ready_timeout)
+    # Answer RouterOS's terminal size-detection so it doesn't stall; a tall
+    # height keeps long output from being paginated.
+    responder = TerminalResponder(cols=terminal_size()[0], rows=10000)
+    wait_for_prompt(transport, ready_timeout, responder)
     for command in commands:
-        yield command, run_command(transport, command, timeout)
+        yield command, run_command(transport, command, timeout, responder)
 
 
 def terminal_size() -> tuple[int, int]:
