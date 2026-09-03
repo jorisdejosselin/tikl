@@ -11,10 +11,27 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-24.04
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
     steps:
-      # Opens/updates a release PR from conventional commits; merging it tags a
-      # v* release, which triggers release.yml to build binaries + the image.
-      - uses: googleapis/release-please-action@v5.0.0
+      # Opens/updates a release PR from conventional commits; merging it creates
+      # the release, which then fans out to the artifact build below.
+      - id: rp
+        uses: googleapis/release-please-action@v5.0.0
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  # A bot-created release cannot trigger `on: release`, so build artifacts by
+  # calling the reusable workflow in this same run when a release was created.
+  artifacts:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    permissions:
+      contents: write
+      packages: write
+    secrets: inherit
