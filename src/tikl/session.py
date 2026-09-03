@@ -36,6 +36,8 @@ _BATCH_ROWS = 10000
 
 
 _CSI_RE = re.compile(rb"\x1b\[([0-9;]*)([A-Za-z])|\x1b([DMZ])|([\r\n])")
+# RouterOS interactive pager, e.g. "-- [Q quit|D dump|down]" / "... |right]".
+_PAGER_RE = re.compile(rb"\[Q quit")
 
 
 class TerminalResponder:
@@ -118,6 +120,11 @@ def _read_until_prompt(
             reply = responder.feed(chunk)
             if reply:
                 transport.write(reply)
+        if _PAGER_RE.search(chunk):
+            # Some commands (e.g. `monitor`) paginate regardless of terminal size;
+            # 'q' dismisses the pager so the session returns cleanly to the prompt
+            # instead of the pager swallowing the next command.
+            transport.write(b"q")
         buf += chunk  # strip escapes at byte level (keeps 8-bit CSI), then decode
         text = strip_ansi_bytes(buf).decode("utf-8", "replace")
         if _PROMPT_RE.search(text):
