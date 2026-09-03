@@ -48,6 +48,11 @@ def _resolve_password(password: str | None) -> str:
     return getpass.getpass("Password: ")
 
 
+def _default_user() -> str:
+    """Username default: $TIKL_USER > legacy $MT_USER > 'admin'."""
+    return os.environ.get("TIKL_USER") or os.environ.get("MT_USER") or "admin"
+
+
 def _make_capture_hook(capture_path: Path | None):  # type: ignore[no-untyped-def]
     if capture_path is None:
         return None
@@ -185,7 +190,7 @@ def _picker(iface: str | None, timeout: float) -> None:
     except (ValueError, IndexError):
         click.secho("Invalid selection.", fg="red")
         sys.exit(1)
-    user = click.prompt("Username", default="admin")
+    user = click.prompt("Username", default=_default_user())
     password = _resolve_password(None)
     transport = _build_mac(dev.mac, user, password, iface)
     _run(transport, f"{dev.mac} (MAC-Telnet)", DEFAULT_COMMANDS, 30.0)
@@ -210,7 +215,7 @@ def discover(iface: str | None, timeout: float) -> None:
 @click.option(
     "-u",
     "--user",
-    default=lambda: os.environ.get("MT_USER", "admin"),
+    default=_default_user,
     show_default="admin",
     help="RouterOS username.",
 )
@@ -250,7 +255,7 @@ def mac(
 @click.option(
     "-u",
     "--user",
-    default=lambda: os.environ.get("MT_USER", "admin"),
+    default=_default_user,
     show_default="admin",
     help="RouterOS username.",
 )
@@ -275,7 +280,7 @@ def ssh(
 @cli.command(hidden=True)
 @click.argument("target")
 @click.argument("commands", nargs=-1)
-@click.option("-u", "--user", default=lambda: os.environ.get("MT_USER", "admin"))
+@click.option("-u", "--user", default=_default_user)
 @click.option("-i", "--iface", default=lambda: os.environ.get("MT_IFACE"))
 @click.option("-p", "--port", default=22)
 @click.option("--password", default=None)

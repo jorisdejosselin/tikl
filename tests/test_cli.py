@@ -6,7 +6,7 @@ import pytest
 from click.testing import CliRunner
 
 import tikl.cli as cli_mod
-from tikl.cli import _resolve_password, cli
+from tikl.cli import _default_user, _resolve_password, cli
 from tikl.errors import AuthFailed
 
 
@@ -47,6 +47,16 @@ def test_resolve_password_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TIKL_PASS", raising=False)
     monkeypatch.setenv("MT_PASS", "legacy")
     assert _resolve_password(None) == "legacy"  # legacy env alias
+
+
+def test_default_user_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TIKL_USER", raising=False)
+    monkeypatch.delenv("MT_USER", raising=False)
+    assert _default_user() == "admin"  # fallback
+    monkeypatch.setenv("MT_USER", "legacyuser")
+    assert _default_user() == "legacyuser"  # legacy alias
+    monkeypatch.setenv("TIKL_USER", "recoveryadmin")
+    assert _default_user() == "recoveryadmin"  # TIKL_USER wins
 
 
 def test_mac_runs_batch(monkeypatch: pytest.MonkeyPatch) -> None:

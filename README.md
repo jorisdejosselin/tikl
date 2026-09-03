@@ -66,8 +66,32 @@ tikl 192.168.88.1 /system resource print
 `tikl discover` needs no privileges (plain UDP). MAC-Telnet needs root/pcap;
 SSH needs neither.
 
-Password resolution: `--password` > `$TIKL_PASS` (or legacy `$MT_PASS`) >
-interactive prompt. Username: `--user` > `$MT_USER` > `admin`.
+### Credentials via environment
+
+| Setting  | Env var (legacy)          | CLI flag       | Default |
+|----------|---------------------------|----------------|---------|
+| Username | `TIKL_USER` (`MT_USER`)   | `--user`/`-u`  | `admin` |
+| Password | `TIKL_PASS` (`MT_PASS`)   | `--password`   | prompt  |
+| Interface| `MT_IFACE`                | `--iface`/`-i` | auto    |
+
+Precedence is CLI flag > `TIKL_*` > legacy `MT_*` > default/prompt.
+
+```bash
+export TIKL_USER=admin
+export TIKL_PASS='your-password'
+tikl ssh 192.168.88.1 /system resource print   # non-root: env is used directly
+```
+
+**`sudo` strips these env vars by default** (even `sudo -E` is refused unless
+sudoers permits it). MAC-Telnet needs root, so to use the env vars with it, allow
+them through sudo once via a sudoers drop-in:
+
+```
+Defaults env_keep += "TIKL_USER TIKL_PASS MT_IFACE"
+```
+
+Then `sudo tikl mac 38:32:7A:26:8E:BD` picks them up. Otherwise pass `--user` /
+`--password` on the command line (visible in the process list), or let it prompt.
 
 ## Development
 
