@@ -94,6 +94,47 @@ def parse(data: bytes) -> MndpDevice | None:
     return dev
 
 
+def _local_ipv4s() -> list[str]:
+    """Best-effort list of local IPv4 addresses (one per interface), via scapy.
+
+    Used only to steer broadcast probes out every interface; failures are
+    non-fatal (we still send a limited broadcast on the default route).
+    """
+    addrs: set[str] = set()
+    try:
+        from scapy.all import get_if_addr, get_if_list  # noqa: PLC0415
+
+        for iface in get_if_list():
+            try:
+                addr = get_if_addr(iface)
+            except Exception:
+                continue
+            if addr and addr != "0.0.0.0" and not addr.startswith("127."):
+                addrs.add(addr)
+    except Exception:
+        pass
+    return sorted(addrs)
+
+
+def _send_probes() -> None:
+    """Broadcast an MNDP probe out every interface so routers reply at once.
+
+    A single limited broadcast only egresses the default route, so a router on
+    a non-default NIC is otherwise found only via its periodic announcement.
+    Binding a probe socket to each local address steers one out each interface.
+    """
+    for src in [None, *_local_ipv4s()]:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            if src is not None:
+                s.bind((src, 0))
+            s.sendto(MNDP_PROBE, ("255.255.255.255", MNDP_PORT))
+            s.close()
+        except OSError:
+            continue
+
+
 def _open_socket() -> socket.socket:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -114,8 +155,7 @@ def discover(timeout: float = 4.0, probe: bool = True) -> list[MndpDevice]:
     sock = _open_socket()
     try:
         if probe:
-            with contextlib.suppress(OSError):
-                sock.sendto(MNDP_PROBE, ("255.255.255.255", MNDP_PORT))
+            _send_probes()
         found: dict[str, MndpDevice] = {}
         deadline = time.time() + timeout
         while time.time() < deadline:
