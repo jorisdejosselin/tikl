@@ -2,11 +2,29 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
-from tikl.mac.mndp import parse
+import pytest
+
+from tikl.mac import mndp
+from tikl.mac.mndp import _broadcast_targets, parse
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mndp_hap_be3.hex"
+
+_IFCONFIG = """\
+lo0: flags=8049 mtu 16384
+\tinet 127.0.0.1 netmask 0xff000000
+en0: flags=8863 mtu 1500
+\tinet 192.168.178.152 netmask 0xffffff00 broadcast 192.168.178.255
+en6: flags=8863 mtu 1500
+\tinet 192.168.88.254 netmask 0xffffff00 broadcast 192.168.88.255
+"""
+
+_IP_ADDR = (
+    "1: lo    inet 127.0.0.1/8 scope host lo\n"
+    "2: eth0    inet 192.168.88.254/24 brd 192.168.88.255 scope global eth0\n"
+)
 
 
 def _real_packet() -> bytes:
@@ -45,3 +63,29 @@ def test_parse_truncated_tlv_stops_cleanly() -> None:
     assert dev is not None
     assert dev.mac == "38:32:7a:26:8e:bd"
     assert dev.version == ""
+
+
+def _fake_run(stdout: str):
+    def run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    return run
+
+
+def test_broadcast_targets_macos(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mndp.sys, "platform", "darwin")
+    monkeypatch.setattr(mndp.subprocess, "run", _fake_run(_IFCONFIG))
+    targets = _broadcast_targets()
+    assert (None, "255.255.255.255") in targets
+    assert ("192.168.178.152", "192.168.178.255") in targets
+    assert ("192.168.88.254", "192.168.88.255") in targets
+    # loopback excluded
+    assert all(src != "127.0.0.1" for src, _ in targets)
+
+
+def test_broadcast_targets_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mndp.sys, "platform", "linux")
+    monkeypatch.setattr(mndp.subprocess, "run", _fake_run(_IP_ADDR))
+    targets = _broadcast_targets()
+    assert ("192.168.88.254", "192.168.88.255") in targets
+    assert all(src != "127.0.0.1" for src, _ in targets)

@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import re
 import socket
 import struct
+import subprocess
+import sys
 import time
 
 MNDP_PORT = 5678
@@ -94,42 +97,69 @@ def parse(data: bytes) -> MndpDevice | None:
     return dev
 
 
-def _local_ipv4s() -> list[str]:
-    """Best-effort list of local IPv4 addresses (one per interface), via scapy.
+def _iface_broadcasts() -> list[tuple[str, str]]:
+    """(source-ip, directed-broadcast) per interface, parsed from ifconfig/ip.
 
-    Used only to steer broadcast probes out every interface; failures are
-    non-fatal (we still send a limited broadcast on the default route).
+    The OS reports the per-interface broadcast address directly, which is more
+    reliable than deriving it (macOS's route table only exposes host routes).
+    Needs no root.
     """
-    addrs: set[str] = set()
+    pairs: list[tuple[str, str]] = []
     try:
-        from scapy.all import get_if_addr, get_if_list  # noqa: PLC0415
-
-        for iface in get_if_list():
-            try:
-                addr = get_if_addr(iface)
-            except Exception:
-                continue
-            if addr and addr != "0.0.0.0" and not addr.startswith("127."):
-                addrs.add(addr)
+        if sys.platform.startswith("linux"):
+            text = subprocess.run(
+                ["ip", "-o", "-4", "addr", "show"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            ).stdout
+            for line in text.splitlines():
+                ip_m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/\d+", line)
+                brd_m = re.search(r"\bbrd (\d+\.\d+\.\d+\.\d+)", line)
+                if ip_m and brd_m and not ip_m.group(1).startswith("127."):
+                    pairs.append((ip_m.group(1), brd_m.group(1)))
+        else:  # macOS / BSD
+            text = subprocess.run(
+                ["ifconfig"], capture_output=True, text=True, timeout=3, check=False
+            ).stdout
+            for line in text.splitlines():
+                m = re.search(
+                    r"inet (\d+\.\d+\.\d+\.\d+) netmask \S+ broadcast (\d+\.\d+\.\d+\.\d+)",
+                    line,
+                )
+                if m and not m.group(1).startswith("127."):
+                    pairs.append((m.group(1), m.group(2)))
     except Exception:
         pass
-    return sorted(addrs)
+    return pairs
+
+
+def _broadcast_targets() -> list[tuple[str | None, str]]:
+    """(bind-source, destination) pairs for MNDP probes: limited + per-subnet directed.
+
+    A limited broadcast (255.255.255.255) only egresses the default route on
+    macOS, so a directed broadcast per interface (e.g. 192.168.88.255) is added
+    to reach routers on non-default NICs and get an immediate reply.
+    """
+    targets: list[tuple[str | None, str]] = [(None, "255.255.255.255")]
+    seen: set[str] = set()
+    for src, bcast in _iface_broadcasts():
+        if bcast not in seen:
+            seen.add(bcast)
+            targets.append((src, bcast))
+    return targets
 
 
 def _send_probes() -> None:
-    """Broadcast an MNDP probe out every interface so routers reply at once.
-
-    A single limited broadcast only egresses the default route, so a router on
-    a non-default NIC is otherwise found only via its periodic announcement.
-    Binding a probe socket to each local address steers one out each interface.
-    """
-    for src in [None, *_local_ipv4s()]:
+    """Send an MNDP probe to every local subnet so routers reply immediately."""
+    for src, dst in _broadcast_targets():
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             if src is not None:
                 s.bind((src, 0))
-            s.sendto(MNDP_PROBE, ("255.255.255.255", MNDP_PORT))
+            s.sendto(MNDP_PROBE, (dst, MNDP_PORT))
             s.close()
         except OSError:
             continue

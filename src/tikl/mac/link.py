@@ -31,6 +31,28 @@ class Link(Protocol):
     def close(self) -> None: ...
 
 
+def candidate_ifaces() -> list[str]:
+    """Interfaces worth trying for MAC-Telnet: those with a real IPv4 address.
+
+    Best-effort via scapy (no root needed for enumeration). Used to auto-detect
+    which NIC a router is on when the user didn't pass --iface.
+    """
+    out: list[str] = []
+    try:
+        from scapy.all import get_if_addr, get_if_list  # noqa: PLC0415
+
+        for iface in get_if_list():
+            try:
+                addr = get_if_addr(iface)
+            except Exception:
+                continue
+            if addr and addr != "0.0.0.0" and not addr.startswith("127."):
+                out.append(iface)
+    except Exception:
+        pass
+    return out
+
+
 def local_mac(iface: str | None) -> str:
     """MAC of ``iface`` via scapy, falling back to the host node id."""
     try:
