@@ -38,7 +38,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
-      - run: uv sync --locked --group packaging
+      - run: uv sync --frozen --group packaging
       - name: Build binary
         run: uv run --group packaging pyinstaller --onefile --name tikl --collect-all scapy packaging/entrypoint.py
       - name: Stage artifact

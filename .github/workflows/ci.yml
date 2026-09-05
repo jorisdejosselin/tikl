@@ -18,7 +18,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
-      - run: uv sync --locked
+      - run: uv sync --frozen
       - name: ruff (lint)
         run: uv run ruff check .
       - name: ruff (format)
@@ -40,7 +40,7 @@ jobs:
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
-      - run: uv sync --locked
+      - run: uv sync --frozen
       # Tests never contact a router; crypto is checked against frozen/golden
       # vectors and the session loop against a fake transport (DESIGN.md #8).
       - name: pytest (coverage reported, not gated)
