@@ -89,3 +89,16 @@ def test_broadcast_targets_linux(monkeypatch: pytest.MonkeyPatch) -> None:
     targets = _broadcast_targets()
     assert ("192.168.88.254", "192.168.88.255") in targets
     assert all(src != "127.0.0.1" for src, _ in targets)
+
+
+def test_local_iface_for_macos(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mndp.sys, "platform", "darwin")
+    monkeypatch.setattr(mndp.subprocess, "run", _fake_run(_IFCONFIG))
+    nets = mndp._iface_networks()
+    # 192.168.178.1 is in en0's /24; 192.168.88.5 is in en6's /24
+    assert mndp._local_iface_for(nets, "192.168.178.1") == "en0"
+    assert mndp._local_iface_for(nets, "192.168.88.5") == "en6"
+    # an address on no local subnet -> unknown
+    assert mndp._local_iface_for(nets, "10.0.0.1") == ""
+    # loopback excluded from the networks
+    assert all(name != "lo0" for name, _, _ in nets)

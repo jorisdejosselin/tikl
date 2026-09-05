@@ -158,14 +158,15 @@ def _run(
 
 def _print_device_table(devices: list[MndpDevice]) -> None:
     click.secho(
-        f"{'#':>2}  {'identity':<16} {'board':<14} {'MAC':<17} {'RouterOS':<12} {'ipv4':<15}",
+        f"{'#':>2}  {'identity':<16} {'board':<14} {'MAC':<17} {'RouterOS':<12} "
+        f"{'ipv4':<15} {'iface':<8}",
         bold=True,
     )
     for i, d in enumerate(devices, 1):
         version = d.version.split()[0] if d.version else ""
         click.echo(
             f"{i:>2}  {d.identity[:16]:<16} {d.board[:14]:<14} {d.mac:<17} "
-            f"{version[:12]:<12} {d.ipv4:<15}"
+            f"{version[:12]:<12} {d.ipv4:<15} {(d.local_iface or '?'):<8}"
         )
 
 
@@ -228,7 +229,8 @@ def _picker(iface: str | None, timeout: float) -> None:
         sys.exit(1)
     user = click.prompt("Username", default=_default_user())
     password = _resolve_password(None)
-    transport = _build_mac(dev.mac, user, password, iface)
+    # Use the interface we heard the device on (if known) to skip re-detection.
+    transport = _build_mac(dev.mac, user, password, iface or dev.local_iface or None)
     _run(transport, f"{dev.mac} (MAC-Telnet)", DEFAULT_COMMANDS, 30.0)
 
 

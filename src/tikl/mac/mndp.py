@@ -53,6 +53,7 @@ class MndpDevice:
     ipv4: str = ""
     ipv6: str = ""
     heard_from: str = ""  # source IP of the UDP datagram
+    local_iface: str = ""  # local NIC it was heard on (best-effort, by subnet)
 
 
 def _mac_from_bytes(b: bytes) -> str:
@@ -135,6 +136,62 @@ def _iface_broadcasts() -> list[tuple[str, str]]:
     return pairs
 
 
+def _ip_to_int(ip: str) -> int:
+    return int.from_bytes(socket.inet_aton(ip), "big")
+
+
+def _iface_networks() -> list[tuple[str, int, int]]:
+    """(iface-name, ip-int, mask-int) per local IPv4 interface, via ifconfig/ip."""
+    nets: list[tuple[str, int, int]] = []
+    try:
+        if sys.platform.startswith("linux"):
+            text = subprocess.run(
+                ["ip", "-o", "-4", "addr", "show"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            ).stdout
+            for line in text.splitlines():
+                nm = re.match(r"\d+:\s+(\S+)", line)
+                im = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", line)
+                if nm and im and not im.group(1).startswith("127."):
+                    pfx = int(im.group(2))
+                    mask = (0xFFFFFFFF << (32 - pfx)) & 0xFFFFFFFF if pfx else 0
+                    nets.append((nm.group(1), _ip_to_int(im.group(1)), mask))
+        else:  # macOS / BSD
+            text = subprocess.run(
+                ["ifconfig"], capture_output=True, text=True, timeout=3, check=False
+            ).stdout
+            cur = ""
+            for line in text.splitlines():
+                hm = re.match(r"([A-Za-z0-9._-]+):\s", line)
+                if hm:
+                    cur = hm.group(1)
+                    continue
+                im = re.search(r"inet (\d+\.\d+\.\d+\.\d+) netmask (0x[0-9a-fA-F]+)", line)
+                if cur and im and not im.group(1).startswith("127."):
+                    nets.append((cur, _ip_to_int(im.group(1)), int(im.group(2), 16)))
+    except Exception:
+        pass
+    return nets
+
+
+def _local_iface_for(nets: list[tuple[str, int, int]], *ips: str) -> str:
+    """The local interface whose subnet contains one of ``ips`` (best-effort)."""
+    for ip in ips:
+        if not ip:
+            continue
+        try:
+            value = _ip_to_int(ip)
+        except OSError:
+            continue
+        for name, net_ip, mask in nets:
+            if mask and (value & mask) == (net_ip & mask):
+                return name
+    return ""
+
+
 def _broadcast_targets() -> list[tuple[str | None, str]]:
     """(bind-source, destination) pairs for MNDP probes: limited + per-subnet directed.
 
@@ -198,6 +255,10 @@ def discover(timeout: float = 4.0, probe: bool = True) -> list[MndpDevice]:
             if dev is not None:
                 dev.heard_from = addr[0]
                 found[dev.mac] = dev
-        return list(found.values())
+        devices = list(found.values())
+        nets = _iface_networks()  # tag each device with the local NIC (by subnet)
+        for dev in devices:
+            dev.local_iface = _local_iface_for(nets, dev.heard_from, dev.ipv4)
+        return devices
     finally:
         sock.close()
