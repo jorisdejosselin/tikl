@@ -16,25 +16,49 @@ tool's job. See [`DESIGN.md`](DESIGN.md) for the full design and
 
 ## Install
 
+Not on PyPI yet — install from source, a prebuilt binary, or Docker.
+
+**With [uv](https://docs.astral.sh/uv/) (any OS, recommended):**
+
 ```bash
-uv tool install tikl        # or: pipx install tikl
+uv tool install git+https://github.com/jorisdejosselin/tikl
+# update later:   uv tool upgrade tikl
+# with pipx:      pipx install git+https://github.com/jorisdejosselin/tikl
 ```
 
-Or grab a standalone **binary** (Linux x86_64/arm64, Windows x86_64) from the
-[Releases](https://github.com/jorisdejosselin/tikl/releases) page — no macOS binary
-(use `uv`/`pip`), see DESIGN.md #10.
+**Prebuilt binary** (no Python needed) — from the
+[latest release](https://github.com/jorisdejosselin/tikl/releases/latest):
 
-Or the **Docker image** (SSH anywhere; MAC only on a Linux host):
+```bash
+# Linux x86_64  (arm64: swap the filename for tikl-linux-arm64)
+curl -L https://github.com/jorisdejosselin/tikl/releases/latest/download/tikl-linux-x86_64 -o /usr/local/bin/tikl && chmod +x /usr/local/bin/tikl
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://github.com/jorisdejosselin/tikl/releases/latest/download/tikl-windows-x86_64.exe -OutFile tikl.exe
+```
+
+_(No macOS binary — use the uv install above; macOS ships libpcap. See DESIGN.md #10.)_
+
+**Docker** (SSH anywhere; MAC-Telnet only on a Linux host):
 
 ```bash
 docker run --rm ghcr.io/jorisdejosselin/tikl ssh 192.168.88.1 /system resource print
-# MAC-Telnet in Docker (Linux host only):
-docker run --rm --network host --cap-add=NET_RAW ghcr.io/jorisdejosselin/tikl \
-    mac 38:32:7A:26:8E:BD
+docker run --rm --network host --cap-add=NET_RAW ghcr.io/jorisdejosselin/tikl mac 38:32:7A:26:8E:BD
 ```
 
-MAC mode needs **libpcap** (Linux/macOS) or **Npcap** (Windows) and
-**root/Administrator** — it sends raw layer-2 frames. SSH mode needs neither.
+### Prerequisites for MAC-Telnet (layer-2) mode
+
+It sends raw L2 frames, so it needs a packet-capture driver **and** admin rights:
+
+| OS | Driver | Run as |
+|----|--------|--------|
+| Windows | [Npcap](https://npcap.com) (install with "WinPcap API-compatible mode") | Administrator (elevated shell) |
+| Linux | libpcap (usually preinstalled; `apt install libpcap0.8`) | `sudo` |
+| macOS | libpcap (built in) | `sudo` |
+
+**SSH mode needs none of this** — no driver, no admin. `tikl discover` (finding devices) also needs no admin.
 
 ## Usage
 
