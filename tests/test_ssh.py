@@ -42,6 +42,17 @@ class FakeTransport:
         self.interval = interval
 
 
+class FakeSFTP:
+    puts: list[tuple[str, str]] = []
+
+    def put(self, local: str, remote: str, callback=None) -> None:  # type: ignore[no-untyped-def]
+        FakeSFTP.puts.append((local, remote))
+        if callback:
+            callback(10, 10)  # simulate a completed transfer
+
+    def close(self) -> None: ...
+
+
 class FakeClient:
     last: FakeClient | None = None
 
@@ -60,6 +71,9 @@ class FakeClient:
 
     def invoke_shell(self, **kwargs: object) -> FakeChannel:
         return self.channel
+
+    def open_sftp(self) -> FakeSFTP:
+        return FakeSFTP()
 
     def close(self) -> None:
         self.closed = True
@@ -116,3 +130,15 @@ def test_read_raises_when_channel_closed(patched: None) -> None:
     t._chan._exit = True  # type: ignore[union-attr]
     with pytest.raises(SessionClosed):
         t.read(0.1)
+
+
+def test_upload_puts_file_over_sftp(patched: None, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    FakeSFTP.puts.clear()
+    local = tmp_path / "routeros-7.24.1.npk"
+    local.write_bytes(b"fake-npk")
+    t = SshTransport("192.168.88.1", password="pw")
+    t.connect()
+    seen: list[tuple[int, int]] = []
+    t.upload(local, local.name, progress=lambda d, tot: seen.append((d, tot)))
+    assert FakeSFTP.puts == [(str(local), "routeros-7.24.1.npk")]
+    assert seen == [(10, 10)]  # progress callback fired

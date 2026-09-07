@@ -128,10 +128,29 @@ def _build_ssh(host: str, user: str, password: str, port: int, legacy: bool, ter
     )
 
 
+def _do_upload(transport: Transport, local: Path, remote: str) -> None:
+    upload = getattr(transport, "upload", None)
+    if not callable(upload):
+        raise TiklError("--upload is only supported over SSH")
+    size = local.stat().st_size
+    click.echo(f"Uploading {local.name} -> {remote} ({size:,} bytes)...", err=True)
+
+    def progress(done: int, total: int) -> None:
+        pct = int(done * 100 / total) if total else 100
+        click.echo(f"\r  {pct:3d}%  {done:,}/{total:,} bytes", err=True, nl=(done >= total))
+
+    upload(local, remote, progress)
+
+
 def _run(
-    transport: Transport, desc: str, commands: tuple[str, ...] | list[str], timeout: float
+    transport: Transport,
+    desc: str,
+    commands: tuple[str, ...] | list[str],
+    timeout: float,
+    uploads: list[tuple[Path, str]] | None = None,
 ) -> None:
-    """Connect, then either run a command batch or open an interactive shell."""
+    """Connect, upload any files, then run a command batch or open a shell."""
+    uploads = uploads or []
     click.echo(f"Connecting to {desc}...", err=True)
     try:
         transport.connect()
@@ -142,12 +161,14 @@ def _run(
                 fg="yellow",
                 err=True,
             )
+        for local, remote in uploads:
+            _do_upload(transport, local, remote)
         if commands:
             click.echo("Connected.\n", err=True)
             for command, output in run_batch(transport, commands, timeout):
                 click.secho(f"=== {command} ===", fg="cyan")
                 click.echo(output)
-        else:
+        elif not uploads:
             click.echo("Connected. Interactive shell — Ctrl-] to quit.\n", err=True)
             interactive_shell(transport)
     except (TiklError, RuntimeError) as exc:
@@ -324,6 +345,14 @@ def mac(
 @click.option("--password", default=None, help="Password ($TIKL_PASS or prompt if omitted).")
 @click.option("--timeout", default=30.0, show_default=True, help="Per-command timeout (s).")
 @click.option("--legacy", is_flag=True, help="Re-enable legacy SSH algorithms for old RouterOS.")
+@click.option(
+    "--upload",
+    "uploads",
+    multiple=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Upload a local file to the router over SFTP, e.g. a .npk firmware "
+    "(repeatable; lands in the router's root, then reboot to install).",
+)
 def ssh(
     host: str,
     commands: tuple[str, ...],
@@ -333,11 +362,12 @@ def ssh(
     password: str | None,
     timeout: float,
     legacy: bool,
+    uploads: tuple[Path, ...],
 ) -> None:
-    """Connect by IP/hostname over SSH. No command = interactive shell."""
+    """Connect by IP/hostname over SSH. Upload files, run commands, or a shell."""
     cmds = _commands(commands, command_opts)
     transport = _build_ssh(host, user, _resolve_password(password), port, legacy, _term_for(cmds))
-    _run(transport, f"{host} (SSH)", cmds, timeout)
+    _run(transport, f"{host} (SSH)", cmds, timeout, [(p, p.name) for p in uploads])
 
 
 @cli.command(hidden=True)

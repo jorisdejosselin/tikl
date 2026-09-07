@@ -8,6 +8,8 @@ like MAC-Telnet. No pcap, no root.
 from __future__ import annotations
 
 import select
+from collections.abc import Callable
+from pathlib import Path
 
 import paramiko
 
@@ -92,6 +94,28 @@ class SshTransport:
         self.cols, self.rows = cols, rows
         if self._chan is not None:
             self._chan.resize_pty(width=cols, height=rows)
+
+    def upload(
+        self, local: Path, remote: str, progress: Callable[[int, int], None] | None = None
+    ) -> None:
+        """Copy a local file to ``remote`` on the router over SFTP.
+
+        On RouterOS the SFTP root is the flash file store, so uploading a
+        ``.npk`` there (default: the file's basename) makes it available to
+        install on reboot.
+        """
+        if self._client is None:
+            raise ConnectionFailed("SSH not connected")
+        try:
+            sftp = self._client.open_sftp()
+        except (OSError, paramiko.SSHException) as exc:
+            raise ConnectionFailed(f"SFTP unavailable: {exc}") from exc
+        try:
+            sftp.put(str(local), remote, callback=progress)
+        except OSError as exc:
+            raise ConnectionFailed(f"upload of {local} failed: {exc}") from exc
+        finally:
+            sftp.close()
 
     def close(self) -> None:
         if self._chan is not None:

@@ -88,7 +88,15 @@ tikl 192.168.88.1 /system resource print
 
 # several commands in one session: repeat -c
 sudo tikl mac 38:32:7A:26:8E:BD -c "/system identity print" -c "/ip address print"
+
+# upload a file over SSH (SFTP) — e.g. RouterOS firmware, then reboot to install
+tikl ssh 192.168.88.1 --upload routeros-7.24.1.npk
+tikl ssh 192.168.88.1 /system reboot
 ```
+
+`--upload` (SSH only, repeatable) copies a local file into the router's root
+over SFTP. A `.npk` there is installed on the next reboot; a routerboard
+firmware `.npk` upgrades the bootloader via `/system routerboard upgrade`.
 
 The words after the target are **joined into one command**, so no quoting is
 needed for a single command (`… /ip address print`). Use `-c` (repeatable) to
