@@ -44,6 +44,22 @@ def test_wait_for_prompt_ok() -> None:
     wait_for_prompt(t, timeout=2)  # must not raise
 
 
+def test_first_login_prompts_are_auto_handled() -> None:
+    # Factory-fresh: software license [Y/n] then a forced password change, before
+    # the shell prompt. wait_for_prompt must decline (n) and skip (Ctrl-C).
+    t = FakeTransport(
+        [
+            b"  MikroTik RouterOS 7.24.1\r\n",
+            b"Do you want to see the software license? [Y/n]: ",
+            b"\r\nChange your password (Ctrl-C to skip)\r\nnew password> ",
+            b"\r\n" + PROMPT,
+        ]
+    )
+    wait_for_prompt(t, timeout=2)  # must not raise
+    assert b"n\r" in t.writes  # declined the license
+    assert b"\x03" in t.writes  # Ctrl-C skipped the password change
+
+
 def test_wait_for_prompt_auth_failure() -> None:
     t = FakeTransport([b"login failed, incorrect password\r\n"])
     with pytest.raises(AuthFailed):

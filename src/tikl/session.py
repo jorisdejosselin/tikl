@@ -46,15 +46,24 @@ DEFAULT_COMMANDS = (
     "/ip dhcp-client print",
 )
 
-# Terminal size reported to RouterOS in batch mode: wide + tall so output never
-# paginates (which would swallow the following command).
+# Terminal size reported to RouterOS in batch mode. Wide so tables don't wrap or
+# horizontally paginate; a realistic height (NOT huge) because RouterOS scrolls
+# the login banner into place by emitting one CR/LF per screen row — a huge
+# height floods the session with newlines and blows the login timeout. Long
+# command output is instead handled by pressing 'D' (dump) at the pager.
 _BATCH_COLS = 512
-_BATCH_ROWS = 10000
+_BATCH_ROWS = 50
 
 
 _CSI_RE = re.compile(rb"\x1b\[([0-9;]*)([A-Za-z])|\x1b([DMZ])|([\r\n])")
 # RouterOS interactive pager, e.g. "-- [Q quit|D dump|down]" / "... |right]".
 _PAGER_RE = re.compile(rb"\[Q quit")
+# Factory-fresh first login asks "…software license? [Y/n]:" and blocks until
+# answered. Match a trailing [y/n]-style question so we can auto-answer it.
+_YN_RE = re.compile(r"\[y/n\]\s*:?\s*$", re.IGNORECASE)
+# It then forces "Change your password (Ctrl-C to skip)" / "new password>";
+# we send Ctrl-C to skip (we don't change the password here).
+_PWCHANGE_RE = re.compile(r"new password>|Change your password", re.IGNORECASE)
 
 
 class TerminalResponder:
@@ -118,14 +127,21 @@ class TerminalResponder:
 
 
 def _read_until_prompt(
-    transport: Transport, timeout: float, responder: TerminalResponder | None = None
+    transport: Transport,
+    timeout: float,
+    responder: TerminalResponder | None = None,
+    answer_yn: bool = False,
 ) -> tuple[str, bool, bool]:
     """Accumulate output until a RouterOS prompt appears or ``timeout`` elapses.
 
-    Returns ``(text, saw_prompt, session_closed)`` with ANSI stripped.
+    Returns ``(text, saw_prompt, session_closed)`` with ANSI stripped. When
+    ``answer_yn`` is set, a trailing "[Y/n]" question (the first-login software
+    license prompt) is auto-answered with 'n' so login can proceed.
     """
     buf = b""
     closed = False
+    answered_yn = False
+    skipped_pw = False
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -142,14 +158,20 @@ def _read_until_prompt(
                 _debug("reply", reply)
                 transport.write(reply)
         if _PAGER_RE.search(chunk):
-            # Some commands (e.g. `monitor`) paginate regardless of terminal size;
-            # 'q' dismisses the pager so the session returns cleanly to the prompt
-            # instead of the pager swallowing the next command.
-            transport.write(b"q")
+            # Long output paginates ("-- [Q quit|D dump|down]"); press 'D' to dump
+            # the rest in one go (keeps all output, and stops the pager from
+            # swallowing the next command).
+            transport.write(b"D")
         buf += chunk  # strip escapes at byte level (keeps 8-bit CSI), then decode
         text = strip_ansi_bytes(buf).decode("utf-8", "replace")
         if _PROMPT_RE.search(text):
             return text, True, False
+        if answer_yn and not answered_yn and _YN_RE.search(text):
+            transport.write(b"n\r")  # decline the software-license prompt
+            answered_yn = True
+        elif answer_yn and not skipped_pw and _PWCHANGE_RE.search(text):
+            transport.write(b"\x03")  # Ctrl-C: skip the forced password change
+            skipped_pw = True
     return strip_ansi_bytes(buf).decode("utf-8", "replace"), False, closed
 
 
@@ -157,7 +179,7 @@ def wait_for_prompt(
     transport: Transport, timeout: float = 25.0, responder: TerminalResponder | None = None
 ) -> None:
     """Block until the first shell prompt; raise :class:`AuthFailed` otherwise."""
-    text, ok, closed = _read_until_prompt(transport, timeout, responder)
+    text, ok, closed = _read_until_prompt(transport, timeout, responder, answer_yn=True)
     if ok:
         return
     if _FAIL_RE.search(text):
