@@ -19,6 +19,17 @@ from .errors import AuthFailed, SessionClosed
 from .mac.protocol import strip_ansi_bytes
 from .transport import Transport
 
+# Set TIKL_DEBUG=1 to dump the raw byte stream (repr) to stderr — used to see how
+# a given router negotiates the terminal / sends its prompt.
+_DEBUG = bool(os.environ.get("TIKL_DEBUG"))
+
+
+def _debug(label: str, data: bytes) -> None:
+    if _DEBUG:
+        sys.stderr.write(f"[tikl-debug] {label} {len(data)}B: {data!r}\n")
+        sys.stderr.flush()
+
+
 # RouterOS shell prompt, e.g. ``[admin@MikroTik] >`` (ANSI already stripped).
 _PROMPT_RE = re.compile(r"[\]>]\s*>\s*$")
 _FAIL_RE = re.compile(r"incorrect|denied|wrong|failed|bad", re.IGNORECASE)
@@ -118,9 +129,11 @@ def _read_until_prompt(
             break
         if not chunk:
             continue
+        _debug("recv", chunk)
         if responder is not None:
             reply = responder.feed(chunk)
             if reply:
+                _debug("reply", reply)
                 transport.write(reply)
         if _PAGER_RE.search(chunk):
             # Some commands (e.g. `monitor`) paginate regardless of terminal size;
