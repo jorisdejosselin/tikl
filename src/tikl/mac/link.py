@@ -8,11 +8,23 @@ runs in CI with no hardware (DESIGN.md #8).
 
 from __future__ import annotations
 
+import contextlib
+import sys
 import threading
 from collections.abc import Callable
 from typing import Protocol
 
+from ..errors import NeedsPrivileges
 from . import protocol as p
+
+
+def _privilege_hint() -> str:
+    if sys.platform.startswith("win"):
+        return (
+            "MAC-Telnet needs raw packet access: install Npcap and run from an "
+            "elevated (Administrator) shell."
+        )
+    return "MAC-Telnet needs raw socket access: re-run with sudo (e.g. `sudo tikl mac ...`)."
 
 
 class Link(Protocol):
@@ -86,20 +98,23 @@ class ScapyLink:
                 return
             on_payload(bytes(pkt[Raw]))  # type: ignore[index]
 
-        threading.Thread(
-            target=sniff,
-            kwargs={
-                "iface": self.iface,
-                "prn": handler,
-                "store": False,
-                "filter": f"udp dst port {sport}",
-                "stop_filter": lambda _: self._stop.is_set(),
-            },
-            daemon=True,
-        ).start()
+        def run_sniff() -> None:
+            # A permission error here is surfaced by send() as NeedsPrivileges;
+            # swallow it so the sniffer thread doesn't dump a raw traceback.
+            with contextlib.suppress(Exception):
+                sniff(
+                    iface=self.iface,
+                    prn=handler,
+                    store=False,
+                    filter=f"udp dst port {sport}",
+                    stop_filter=lambda _: self._stop.is_set(),
+                )
+
+        threading.Thread(target=run_sniff, daemon=True).start()
 
     def send(self, payload: bytes) -> None:
         from scapy.all import IP, UDP, Ether, Raw, sendp  # noqa: PLC0415
+        from scapy.error import Scapy_Exception  # noqa: PLC0415
 
         pkt = (
             Ether(src=self.hwaddr, dst="ff:ff:ff:ff:ff:ff")
@@ -107,7 +122,10 @@ class ScapyLink:
             / UDP(sport=self.sport, dport=p.MACTELNET_PORT)
             / Raw(load=payload)
         )
-        sendp(pkt, iface=self.iface, verbose=False)
+        try:
+            sendp(pkt, iface=self.iface, verbose=False)
+        except (Scapy_Exception, PermissionError, OSError) as exc:
+            raise NeedsPrivileges(_privilege_hint()) from exc
 
     def close(self) -> None:
         self._stop.set()

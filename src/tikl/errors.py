@@ -21,3 +21,7 @@ class AuthFailed(TiklError):
 
 class UnsupportedRouterOS(TiklError):
     """The router uses pre-6.43 auth, which Tikl does not implement."""
+
+
+class NeedsPrivileges(TiklError):
+    """Raw packet access (libpcap/Npcap + root/Administrator) was denied."""
