@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/jorisdejosselin/tikl/compare/tikl-v0.2.0...tikl-v0.3.0) (2026-09-07)
+
+
+### Features
+
+* --debug flag to dump the raw session stream (survives sudo) ([7fed6f5](https://github.com/jorisdejosselin/tikl/commit/7fed6f5e4e469ac55c2cb5caae5407074ec47383)), closes [#5](https://github.com/jorisdejosselin/tikl/issues/5)
+* --upload sends files to the router over SSH/SFTP ([9bc3c9c](https://github.com/jorisdejosselin/tikl/commit/9bc3c9c931c9dc0673e13acb8ca2730ae3e0bd31))
+* show the local interface a device was discovered on ([57352be](https://github.com/jorisdejosselin/tikl/commit/57352bec0f81ee5c9727ad5e42f926bf5941e5b4))
+* TIKL_DEBUG=1 dumps the raw session byte stream to stderr ([dc068c0](https://github.com/jorisdejosselin/tikl/commit/dc068c037a022154523f803da8ff0ba834f2bf04)), closes [#5](https://github.com/jorisdejosselin/tikl/issues/5)
+
+
+### Bug Fixes
+
+* clear "needs sudo" message instead of a raw scapy traceback ([a209519](https://github.com/jorisdejosselin/tikl/commit/a209519764eb3d602117d84e5e7857f44c313e6e)), closes [#4](https://github.com/jorisdejosselin/tikl/issues/4)
+* distinguish MAC-Telnet auth rejection from a silent login timeout ([9cbbac4](https://github.com/jorisdejosselin/tikl/commit/9cbbac49bc21863bf04aaaf31c970e6939924f84)), closes [#5](https://github.com/jorisdejosselin/tikl/issues/5)
+* handle factory-fresh first-login prompts over MAC-Telnet ([1f9136b](https://github.com/jorisdejosselin/tikl/commit/1f9136b25d76d982024fdf21643e70a06866a46a)), closes [#5](https://github.com/jorisdejosselin/tikl/issues/5)
+
 ## [0.2.0](https://github.com/jorisdejosselin/tikl/compare/tikl-v0.1.0...tikl-v0.2.0) (2026-09-05)
 
 

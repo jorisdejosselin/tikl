@@ -1,6 +1,6 @@
 [project]
 name = "tikl"
-version = "0.2.0"
+version = "0.3.0"
 description = "Recovery CLI for MikroTik/RouterOS routers over MAC-Telnet (L2, no IP) or SSH."
 readme = "README.md"
 license = "MIT"
