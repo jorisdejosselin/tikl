@@ -102,17 +102,19 @@ class TerminalResponder:
 
 def _read_until_prompt(
     transport: Transport, timeout: float, responder: TerminalResponder | None = None
-) -> tuple[str, bool]:
+) -> tuple[str, bool, bool]:
     """Accumulate output until a RouterOS prompt appears or ``timeout`` elapses.
 
-    Returns ``(text, saw_prompt)`` with ANSI stripped.
+    Returns ``(text, saw_prompt, session_closed)`` with ANSI stripped.
     """
     buf = b""
+    closed = False
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
             chunk = transport.read(min(2.0, deadline - time.time()))
         except SessionClosed:
+            closed = True
             break
         if not chunk:
             continue
@@ -128,19 +130,28 @@ def _read_until_prompt(
         buf += chunk  # strip escapes at byte level (keeps 8-bit CSI), then decode
         text = strip_ansi_bytes(buf).decode("utf-8", "replace")
         if _PROMPT_RE.search(text):
-            return text, True
-    return strip_ansi_bytes(buf).decode("utf-8", "replace"), False
+            return text, True, False
+    return strip_ansi_bytes(buf).decode("utf-8", "replace"), False, closed
 
 
 def wait_for_prompt(
     transport: Transport, timeout: float = 25.0, responder: TerminalResponder | None = None
 ) -> None:
     """Block until the first shell prompt; raise :class:`AuthFailed` otherwise."""
-    text, ok = _read_until_prompt(transport, timeout, responder)
-    if not ok:
-        if _FAIL_RE.search(text):
-            raise AuthFailed(text.strip()[:200] or "authentication failed")
-        raise AuthFailed("no prompt from router (authentication likely failed)")
+    text, ok, closed = _read_until_prompt(transport, timeout, responder)
+    if ok:
+        return
+    if _FAIL_RE.search(text):
+        raise AuthFailed(text.strip()[:200] or "authentication failed")
+    if closed:
+        # The router accepted the session then ended it after login — an explicit
+        # EC-SRP5 rejection (wrong password, or the user has no MAC-Telnet access).
+        raise AuthFailed("router rejected the login (wrong password, or no MAC-Telnet access)")
+    # Silence after login: either auth failed silently or the prompt wasn't seen.
+    raise AuthFailed(
+        "no response after login within the timeout — authentication likely failed "
+        "(if the password is correct, please report this with `--capture`)"
+    )
 
 
 def run_command(
@@ -151,7 +162,7 @@ def run_command(
 ) -> str:
     """Send one RouterOS command and return its output (ANSI stripped)."""
     transport.write((command + "\r").encode())
-    text, _ = _read_until_prompt(transport, timeout, responder)
+    text, _, _ = _read_until_prompt(transport, timeout, responder)
     return text
 
 

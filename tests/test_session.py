@@ -78,5 +78,12 @@ def test_read_until_prompt_handles_session_closed() -> None:
         def read(self, timeout: float) -> bytes:
             raise SessionClosed
 
-    with pytest.raises(AuthFailed):
+    # Router ended the session after login -> explicit rejection message.
+    with pytest.raises(AuthFailed, match="rejected"):
         wait_for_prompt(Closing([]), timeout=1)
+
+
+def test_wait_for_prompt_silent_timeout() -> None:
+    # No data at all -> "no response" (distinct from an explicit rejection).
+    with pytest.raises(AuthFailed, match="no response"):
+        wait_for_prompt(FakeTransport([]), timeout=0.2)
