@@ -24,6 +24,7 @@ from .mac.ecsrp5 import HandshakeCapture
 from .mac.mndp import MndpDevice
 from .session import (
     DEFAULT_COMMANDS,
+    enable_debug,
     interactive_shell,
     run_batch,
     terminal_size,
@@ -280,6 +281,7 @@ def discover(iface: str | None, timeout: float) -> None:
     help="Write the EC-SRP5 handshake to this file (test-vector "
     "generation; USE A THROWAWAY CHR + CREDENTIAL ONLY).",
 )
+@click.option("--debug", is_flag=True, help="Dump the raw session byte stream to stderr.")
 def mac(
     mac: str,
     commands: tuple[str, ...],
@@ -289,8 +291,11 @@ def mac(
     password: str | None,
     timeout: float,
     capture_path: Path | None,
+    debug: bool,
 ) -> None:
     """Connect by MAC over MAC-Telnet (layer 2, no IP). No command = shell."""
+    if debug:
+        enable_debug()
     cmds = _commands(commands, command_opts)
     transport = _build_mac(
         mac, user, _resolve_password(password), iface, capture_path, _term_for(cmds)

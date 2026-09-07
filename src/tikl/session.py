@@ -19,9 +19,15 @@ from .errors import AuthFailed, SessionClosed
 from .mac.protocol import strip_ansi_bytes
 from .transport import Transport
 
-# Set TIKL_DEBUG=1 to dump the raw byte stream (repr) to stderr — used to see how
-# a given router negotiates the terminal / sends its prompt.
+# TIKL_DEBUG=1 (or --debug) dumps the raw byte stream (repr) to stderr — used to
+# see how a given router negotiates the terminal / sends its prompt.
 _DEBUG = bool(os.environ.get("TIKL_DEBUG"))
+
+
+def enable_debug() -> None:
+    """Turn on raw-stream debug logging (the --debug flag; survives sudo)."""
+    global _DEBUG
+    _DEBUG = True
 
 
 def _debug(label: str, data: bytes) -> None:
