@@ -19,7 +19,7 @@ classifiers = [
     "Topic :: System :: Networking",
 ]
 dependencies = [
-    "click==8.5.0",
+    "click==8.5.1",
     "scapy==2.7.0",
     "ecdsa==0.19.2",
     "paramiko==5.0.0",
