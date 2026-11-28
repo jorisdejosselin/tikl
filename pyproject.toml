@@ -5,7 +5,7 @@ description = "Recovery CLI for MikroTik/RouterOS routers over MAC-Telnet (L2, n
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+requires-python = "==3.15.2"
 authors = [{ name = "Joris de Josselin de Jong", email = "j.j.dejosselindejong@gmail.com" }]
 keywords = ["mikrotik", "routeros", "mac-telnet", "ec-srp5", "recovery", "cli"]
 classifiers = [
